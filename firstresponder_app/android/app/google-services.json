@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "370067865961",
+    "project_id": "first-responder-network",
+    "storage_bucket": "first-responder-network.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:370067865961:android:91c69f1fe39fc1b6e97df8",
+        "android_client_info": {
+          "package_name": "com.example.firstresponder_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWEw5188AQlG7CLaGNTb4Irf00ypf9qQw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
