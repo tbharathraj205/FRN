@@ -82,11 +82,13 @@ class _SignupScreenState extends State<SignupScreen> {
           builder: (_) => AlertDialog(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16)),
-            title: const Row(
+            title: Row(
               children: [
-                Icon(Icons.check_circle, color: Color(0xFF22C55E)),
-                SizedBox(width: 8),
-                Text('Registration Submitted'),
+                const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: const Text('Registration Submitted'),
+                ),
               ],
             ),
             content: const Text(

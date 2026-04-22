@@ -51,24 +51,37 @@ def submit_report(req: https_fn.Request):
     body = req.get_json()
     incident_id = body.get("incidentId")
     doctor_id = body.get("doctorId")
-    vitals = body.get("vitals")        # e.g. { pulse, bp, temperature }
+    # Frontend sends selected actions in the 'vitals' field (legacy name)
+    vitals = body.get("vitals")        # kept for compatibility
+    actions = body.get("actions") or vitals
     notes = body.get("notes")
+    outcome = body.get("outcome")
 
     if not incident_id or not doctor_id:
         return https_fn.Response("incidentId and doctorId are required", status=400)
 
     # Save report to Firestore
+    # Save report to Firestore with actions and outcome
     db.collection("reports").document(incident_id).set({
         "incident_id": incident_id,
         "doctor_id": doctor_id,
         "vitals": vitals,
+        "actions_taken": actions,
+        "outcome": outcome,
         "notes": notes,
         "submitted_at": firestore.SERVER_TIMESTAMP
     })
 
     # Also update the incident doc to mark report submitted
+    # Mark incident as resolved and link report
     db.collection("incidents").document(incident_id).update({
-        "report_submitted": True
+        "report_submitted": True,
+        "status": "resolved",
+        "report_summary": {
+            "actions_taken": actions,
+            "outcome": outcome,
+            "notes": notes
+        }
     })
 
     return https_fn.Response(

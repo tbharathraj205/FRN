@@ -1,11 +1,14 @@
 import axios from "axios";
 import { useState } from "react";
+import { db } from "../firebase/config";
+import { doc, deleteDoc } from "firebase/firestore";
 
 const APPROVE_URL = "https://approve-doctor-kl4browlmq-uc.a.run.app";
 
-export default function DoctorCard({ doctor }) {
+export default function DoctorCard({ doctor, onReject }) {
     const [loading, setLoading] = useState(false);
     const [approved, setApproved] = useState(doctor.is_approved);
+    const [rejecting, setRejecting] = useState(false);
 
     const handleApprove = async () => {
         setLoading(true);
@@ -16,6 +19,21 @@ export default function DoctorCard({ doctor }) {
             alert("Failed to approve doctor. Try again.");
         }
         setLoading(false);
+    };
+
+    const handleReject = async () => {
+        if (!window.confirm(`Are you sure you want to reject and delete all details for ${doctor.name}? This cannot be undone.`)) {
+            return;
+        }
+
+        setRejecting(true);
+        try {
+            await deleteDoc(doc(db, "doctors", doctor.id));
+            if (onReject) onReject(doctor.id);
+        } catch (err) {
+            alert("Failed to reject doctor. Try again.");
+        }
+        setRejecting(false);
     };
 
     return (
@@ -47,17 +65,26 @@ export default function DoctorCard({ doctor }) {
                         </span>
                     )}
 
-                    {/* Approve Button */}
+                    {/* Approve/Reject Buttons */}
                     {!approved ? (
-                        <button
-                            onClick={handleApprove}
-                            disabled={loading}
-                            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition"
-                        >
-                            {loading ? "Approving..." : "✓ Approve"}
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleApprove}
+                                disabled={loading}
+                                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition disabled:opacity-50"
+                            >
+                                {loading ? "Approving..." : "✓ Approve"}
+                            </button>
+                            <button
+                                onClick={handleReject}
+                                disabled={rejecting}
+                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition disabled:opacity-50"
+                            >
+                                {rejecting ? "Rejecting..." : "✕ Reject"}
+                            </button>
+                        </div>
                     ) : (
-                        <span className="px-3 py-1 bg-red-600 text-white text-xs rounded-full font-semibold">
+                        <span className="px-3 py-1 bg-green-600 text-white text-xs rounded-full font-semibold">
                             ✓ Approved
                         </span>
                     )}

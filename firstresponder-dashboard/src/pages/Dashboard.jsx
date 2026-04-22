@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase/config";
-import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { MapContainer, TileLayer, Marker, useMapEvents, Popup, Tooltip } from "react-leaflet";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../firebase/config";
@@ -58,6 +58,9 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [onDutyDoctors, setOnDutyDoctors] = useState([]);
+    const [pendingDoctors, setPendingDoctors] = useState([]);
+    const [showApprovalModal, setShowApprovalModal] = useState(false);
+    const [approvalLoading, setApprovalLoading] = useState({});
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -90,7 +93,16 @@ export default function Dashboard() {
             setTodayIncidents(todayCount);
         });
 
-        return () => { unsub1(); unsub2(); unsub3(); };
+        // Pending doctors (not approved)
+        const pendingQ = query(
+            collection(db, "doctors"),
+            where("is_approved", "==", false)
+        );
+        const unsub4 = onSnapshot(pendingQ, (snap) => {
+            setPendingDoctors(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
     }, []);
 
     const handleMapClick = async (lat, lng) => {
@@ -123,6 +135,35 @@ export default function Dashboard() {
             setMarkerPos([newLat, newLng]);
             setLocationSet(true);
         }
+    };
+
+    const handleApproveDoctor = async (doctorId, doctorName) => {
+        setApprovalLoading({ ...approvalLoading, [doctorId]: "approving" });
+        try {
+            await updateDoc(doc(db, "doctors", doctorId), {
+                is_approved: true,
+                approved_at: new Date(),
+            });
+            alert(`${doctorName} approved!`);
+        } catch (err) {
+            alert("Error approving doctor");
+            console.error(err);
+        }
+        setApprovalLoading({ ...approvalLoading, [doctorId]: null });
+    };
+
+    const handleRejectDoctor = async (doctorId, doctorName) => {
+        if (!window.confirm(`Delete all details for ${doctorName}? This cannot be undone.`)) return;
+        
+        setApprovalLoading({ ...approvalLoading, [doctorId]: "rejecting" });
+        try {
+            await deleteDoc(doc(db, "doctors", doctorId));
+            alert(`${doctorName} rejected`);
+        } catch (err) {
+            alert("Error rejecting doctor");
+            console.error(err);
+        }
+        setApprovalLoading({ ...approvalLoading, [doctorId]: null });
     };
 
     const handleDispatch = async () => {
@@ -225,6 +266,37 @@ export default function Dashboard() {
                         </div>
                     ))}
                 </div>
+
+                {/* Approve Doctors Button */}
+                <button
+                    onClick={() => setShowApprovalModal(true)}
+                    style={{
+                        padding: "8px 16px",
+                        backgroundColor: pendingDoctors.length > 0 ? "#fbbf24" : "#d1d5db",
+                        color: pendingDoctors.length > 0 ? "#333" : "#666",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontWeight: "600",
+                        fontSize: "12px",
+                        cursor: pendingDoctors.length > 0 ? "pointer" : "default",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.2s",
+                    }}
+                    onMouseEnter={(e) => {
+                        if (pendingDoctors.length > 0) {
+                            e.currentTarget.style.backgroundColor = "#d97706";
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (pendingDoctors.length > 0) {
+                            e.currentTarget.style.backgroundColor = "#fbbf24";
+                        }
+                    }}
+                >
+                    👨‍⚕️ Approve ({pendingDoctors.length})
+                </button>
 
                 {/* User */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -547,8 +619,6 @@ export default function Dashboard() {
                                     </div>
                                 </div>
 
-
-
                                 {/* Doctor Cards */}
                                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                                     {onDutyDoctors.length > 0 ? (
@@ -581,6 +651,164 @@ export default function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Approval Modal */}
+            {showApprovalModal && (
+                <div style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(0,0,0,0.5)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 1000,
+                }}>
+                    <div style={{
+                        background: "white",
+                        borderRadius: "12px",
+                        maxWidth: "640px",
+                        width: "90%",
+                        maxHeight: "80vh",
+                        overflow: "auto",
+                        boxShadow: "0 20px 25px rgba(0,0,0,0.15)",
+                    }}>
+                        {/* Modal Header */}
+                        <div style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "20px",
+                            borderBottom: "1px solid #e0e0e0",
+                            stickyTop: 0,
+                            background: "white",
+                        }}>
+                            <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "bold", color: "#333" }}>
+                                👨‍⚕️ Approve Doctors ({pendingDoctors.length})
+                            </h2>
+                            <button
+                                onClick={() => setShowApprovalModal(false)}
+                                style={{
+                                    background: "none",
+                                    border: "none",
+                                    fontSize: "24px",
+                                    cursor: "pointer",
+                                    color: "#999",
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Modal Content */}
+                        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                            {pendingDoctors.length === 0 ? (
+                                <div style={{ textAlign: "center", padding: "40px 20px", color: "#999" }}>
+                                    <div style={{ fontSize: "48px", marginBottom: "12px" }}>✓</div>
+                                    <p style={{ fontSize: "16px", fontWeight: "600" }}>All doctors approved!</p>
+                                    <p style={{ fontSize: "13px", color: "#bbb", marginTop: "8px" }}>There are no pending doctor approvals at this time.</p>
+                                </div>
+                            ) : (
+                                pendingDoctors.map((doctor) => (
+                                    <div
+                                        key={doctor.id}
+                                        style={{
+                                            border: "1px solid #e0e0e0",
+                                            borderRadius: "8px",
+                                            padding: "16px",
+                                            background: "#f9fafb",
+                                            display: "flex",
+                                            gap: "12px",
+                                        }}
+                                    >
+                                        {/* Doctor Avatar */}
+                                        <div style={{
+                                            width: "48px",
+                                            height: "48px",
+                                            borderRadius: "50%",
+                                            background: "#c53030",
+                                            color: "white",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            fontWeight: "bold",
+                                            fontSize: "20px",
+                                            flexShrink: 0,
+                                        }}>
+                                            {doctor.name ? doctor.name.charAt(0).toUpperCase() : "?"}
+                                        </div>
+
+                                        {/* Doctor Info */}
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: "14px", fontWeight: "600", color: "#333", marginBottom: "4px" }}>
+                                                {doctor.name || "Unknown"}
+                                            </div>
+                                            <div style={{ fontSize: "12px", color: "#666", marginBottom: "2px" }}>
+                                                🏥 {doctor.specialization || "N/A"}
+                                            </div>
+                                            <div style={{ fontSize: "12px", color: "#666", marginBottom: "2px" }}>
+                                                📋 License: {doctor.license_number || "N/A"}
+                                            </div>
+                                            <div style={{ fontSize: "12px", color: "#666", marginBottom: "2px" }}>
+                                                📧 {doctor.email || "N/A"}
+                                            </div>
+                                            <div style={{ fontSize: "12px", color: "#666" }}>
+                                                📞 {doctor.phone || "N/A"}
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div style={{
+                                            display: "flex",
+                                            gap: "8px",
+                                            flexDirection: "column",
+                                            alignItems: "flex-end",
+                                            justifyContent: "center",
+                                        }}>
+                                            <button
+                                                onClick={() => handleApproveDoctor(doctor.id, doctor.name)}
+                                                disabled={approvalLoading[doctor.id]}
+                                                style={{
+                                                    padding: "8px 14px",
+                                                    backgroundColor: approvalLoading[doctor.id] === "approving" ? "#999" : "#22c55e",
+                                                    color: "white",
+                                                    border: "none",
+                                                    borderRadius: "4px",
+                                                    fontWeight: "600",
+                                                    fontSize: "12px",
+                                                    cursor: approvalLoading[doctor.id] ? "not-allowed" : "pointer",
+                                                    opacity: approvalLoading[doctor.id] ? 0.7 : 1,
+                                                }}
+                                            >
+                                                {approvalLoading[doctor.id] === "approving" ? "⏳..." : "✓ Approve"}
+                                            </button>
+                                            <button
+                                                onClick={() => handleRejectDoctor(doctor.id, doctor.name)}
+                                                disabled={approvalLoading[doctor.id]}
+                                                style={{
+                                                    padding: "8px 14px",
+                                                    backgroundColor: approvalLoading[doctor.id] === "rejecting" ? "#999" : "#ef4444",
+                                                    color: "white",
+                                                    border: "none",
+                                                    borderRadius: "4px",
+                                                    fontWeight: "600",
+                                                    fontSize: "12px",
+                                                    cursor: approvalLoading[doctor.id] ? "not-allowed" : "pointer",
+                                                    opacity: approvalLoading[doctor.id] ? 0.7 : 1,
+                                                }}
+                                            >
+                                                {approvalLoading[doctor.id] === "rejecting" ? "⏳..." : "✕ Reject"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -47,7 +47,9 @@ class _ReportScreenState extends State<ReportScreen> {
         body: jsonEncode({
           'incidentId': widget.incidentId,
           'doctorId': widget.doctorId,
+          // keep legacy `vitals` for compatibility and send explicit `actions`
           'vitals': _selectedActions,
+          'actions': _selectedActions,
           'notes': _notesController.text,
           'outcome': _selectedOutcome,
         }),
