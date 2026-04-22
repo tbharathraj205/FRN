@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 import 'alert_screen.dart';
 import 'history_screen.dart';
 
@@ -21,12 +22,19 @@ class _HomeScreenState extends State<HomeScreen> {
   String _specialization = '';
   String _doctorId = '';
   int _currentIndex = 0;
+  Timer? _locationUpdateTimer;
 
   @override
   void initState() {
     super.initState();
     _loadDoctorData();
     _listenForAlerts();
+  }
+
+  @override
+  void dispose() {
+    _locationUpdateTimer?.cancel();
+    super.dispose();
   }
 
   void _listenForAlerts() {
@@ -127,10 +135,48 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _toggleDuty(bool value) async {
     setState(() { _isOnDuty = value; });
+    
+    // Cancel existing timer if any
+    _locationUpdateTimer?.cancel();
+    
+    if (value) {
+      // Update location immediately when going on duty
+      await _updateDoctorLocation();
+      
+      // Start location update timer every minute
+      _locationUpdateTimer = Timer.periodic(const Duration(minutes: 1), (_) async {
+        await _updateDoctorLocation();
+      });
+    }
+    
     await FirebaseFirestore.instance
         .collection('doctors')
         .doc(_doctorId)
         .update({'is_on_duty': value});
+  }
+
+  Future<void> _updateDoctorLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        return;
+      }
+      
+      final position = await Geolocator.getCurrentPosition();
+      await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(_doctorId)
+          .update({
+        'current_lat': position.latitude,
+        'current_lng': position.longitude,
+      });
+    } catch (e) {
+      print('Error updating location: $e');
+    }
   }
 
   Future<void> _logout() async {

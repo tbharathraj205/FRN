@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'navigation_screen.dart';
 import 'dart:math';
 import 'package:geolocator/geolocator.dart';
@@ -81,31 +83,93 @@ class _AlertScreenState extends State<AlertScreen> {
       _responding = true;
     });
     try {
-      await FirebaseFirestore.instance
-          .collection('incidents')
-          .doc(widget.incidentId)
-          .update({
-        'status': 'accepted',
-        'assigned_doctor_id': widget.doctorId,
-      });
-      if (mounted) {
-        Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => NavigationScreen(
-                incidentId: widget.incidentId,
-                emergencyType: widget.emergencyType,
-                lat: widget.lat,
-                lng: widget.lng,
-                ambulanceEta: widget.ambulanceEta,
-                doctorId: widget.doctorId,
+      // Call Cloud Function to handle acceptance with distance-based assignment
+      final response = await http.post(
+        Uri.parse('https://us-central1-first-responder-network.cloudfunctions.net/accept_incident_handler'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'doctorId': widget.doctorId,
+          'incidentId': widget.incidentId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        
+        if (result['success']) {
+          // Successfully assigned to this doctor
+          if (mounted) {
+            Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NavigationScreen(
+                    incidentId: widget.incidentId,
+                    emergencyType: widget.emergencyType,
+                    lat: widget.lat,
+                    lng: widget.lng,
+                    ambulanceEta: widget.ambulanceEta,
+                    doctorId: widget.doctorId,
+                  ),
+                ));
+          }
+        } else {
+          // Another doctor is closer
+          setState(() => _responding = false);
+          if (mounted) {
+            showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('Another Doctor Closer'),
+                content: Text(
+                  'A closer doctor (${result['closer_doctor_distance']} km away) has been assigned instead.\n\nYour distance: ${result['your_distance']} km',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('OK'),
+                  ),
+                ],
               ),
-            ));
+            );
+          }
+        }
+      } else if (response.statusCode == 409) {
+        // Conflict: another doctor already assigned and closer
+        final result = jsonDecode(response.body);
+        setState(() => _responding = false);
+        
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Another Doctor Closer'),
+              content: Text(
+                'A closer doctor has accepted this incident.\n\nYour distance: ${result['your_distance']} km\nCloser doctor: ${result['closer_doctor_distance']} km',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        setState(() => _responding = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Error accepting incident')),
+          );
+        }
       }
     } catch (e) {
-      setState(() {
-        _responding = false;
-      });
+      setState(() => _responding = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 

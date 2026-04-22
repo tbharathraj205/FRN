@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase/config";
 import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMapEvents, Popup, Tooltip } from "react-leaflet";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../firebase/config";
 import { signOut } from "firebase/auth";
@@ -251,6 +251,37 @@ export default function Dashboard() {
                         />
                         <MapClickHandler onMapClick={handleMapClick} />
                         {markerPos && <Marker position={markerPos} />}
+                        
+                        {/* Doctor Location Markers */}
+                        {onDutyDoctors.map((doctor) => {
+                            const doctorLat = doctor.current_lat;
+                            const doctorLng = doctor.current_lng;
+                            if (!doctorLat || !doctorLng) return null;
+                            
+                            // Create custom green pin icon
+                            const doctorIcon = L.icon({
+                                iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA0OCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjQgMEMxMC43NjUgMCAwIDEwLjc2NSAwIDI0YzAgMTMuMjM1IDI0IDQwIDI0IDQwczI0IC0yNi43NjUgMjQtNDBjMC0xMy4yMzUtMTAuNzY1LTI0LTI0LTI0em0wIDMyYy00LjQxOCAwLTgtMy41ODItOC04czMuNTgyLTggOC04IDMuNTgyLTggOCA4LTMuNTgyIDgtOCA4eiIgZmlsbD0iIzc2QjgyQSIvPjwvc3ZnPg==',
+                                iconSize: [32, 42],
+                                iconAnchor: [16, 42],
+                                popupAnchor: [0, -42],
+                                shadowSize: [0, 0]
+                            });
+                            
+                            return (
+                                <Marker key={doctor.id} position={[doctorLat, doctorLng]} icon={doctorIcon}>
+                                    <Tooltip permanent={false} direction="top" offset={[0, -10]}>
+                                        <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#333', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {doctor.photo_url ? (
+                                                <img src={doctor.photo_url} alt={doctor.name} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>👨</div>
+                                            )}
+                                            <span>{doctor.name || 'Doctor'}</span>
+                                        </div>
+                                    </Tooltip>
+                                </Marker>
+                            );
+                        })}
                     </MapContainer>
                     {!markerPos && (
                         <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "rgba(0,0,0,0.7)", color: "white", padding: "8px 16px", borderRadius: 20, fontSize: 12, pointerEvents: "none", zIndex: 1000 }}>

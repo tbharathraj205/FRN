@@ -52,6 +52,11 @@ def on_incident_created(event: firestore_fn.Event[firestore_fn.DocumentSnapshot]
     # Log dispatch
     db.collection("dispatch_log").document(incident_id).set({
         "incident_id": incident_id,
+        "address": incident_data.get("address"),
+        "emergency_type": incident_data.get("emergency_type"),
+        "lat": incident_data.get("lat"),
+        "lng": incident_data.get("lng"),
+        "bystander_phone": incident_data.get("bystander_phone"),
         "doctors_alerted": nearby_doctors,
         "alerted_at": firestore.SERVER_TIMESTAMP
     })

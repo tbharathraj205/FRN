@@ -9,6 +9,7 @@ from dispatch import on_incident_created
 from incidents import on_doctor_accepted, on_incident_resolved
 from notifications import approve_doctor
 from reports import update_doctor_location, submit_report
+from accept_incident import accept_incident_handler
 
 # Explicitly expose them at module level
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "on_incident_resolved",
     "approve_doctor",
     "update_doctor_location",
-    "submit_report"
+    "submit_report",
+    "accept_incident_handler"
 ]
