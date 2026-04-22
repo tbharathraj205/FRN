@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _doctorName = '';
   String _specialization = '';
   String _doctorId = '';
+  Map<String, dynamic> _doctorProfile = {};
   int _currentIndex = 0;
   Timer? _locationUpdateTimer;
 
@@ -68,18 +69,18 @@ class _HomeScreenState extends State<HomeScreen> {
     if (doc.exists) {
       final data = doc.data()!;
       setState(() {
+        _doctorProfile = data;
         _doctorName = data['name'] ?? user.email ?? 'Doctor';
         _specialization = data['specialization'] ?? 'First Aid Volunteer';
         _isOnDuty = data['is_on_duty'] ?? false;
       });
     } else {
-      await FirebaseFirestore.instance
-          .collection('doctors')
-          .doc(user.uid)
-          .set({
+      final fallbackDoctor = {
         'name': user.email?.split('@')[0] ?? 'Doctor',
+        'email': user.email ?? '',
         'phone': '',
         'specialization': 'First Aid Volunteer',
+        'license_number': '',
         'is_approved': true,
         'is_on_duty': false,
         'current_lat': 13.0827,
@@ -87,8 +88,18 @@ class _HomeScreenState extends State<HomeScreen> {
         'fcm_token': '',
         'current_incident': null,
         'photo_url': '',
-      });
+        'created_at': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(user.uid)
+          .set(fallbackDoctor);
       setState(() {
+        _doctorProfile = {
+          ...fallbackDoctor,
+          'created_at': null,
+        };
         _doctorName = user.email?.split('@')[0] ?? 'Doctor';
         _specialization = 'First Aid Volunteer';
       });
@@ -112,6 +123,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .collection('doctors')
           .doc(user.uid)
           .update({'fcm_token': fcmToken});
+      setState(() {
+        _doctorProfile['fcm_token'] = fcmToken;
+      });
     }
 
     // Update current location
@@ -127,6 +141,10 @@ class _HomeScreenState extends State<HomeScreen> {
           .update({
         'current_lat': position.latitude,
         'current_lng': position.longitude,
+      });
+      setState(() {
+        _doctorProfile['current_lat'] = position.latitude;
+        _doctorProfile['current_lng'] = position.longitude;
       });
     } catch (e) {
       // Use default location
@@ -174,9 +192,168 @@ class _HomeScreenState extends State<HomeScreen> {
         'current_lat': position.latitude,
         'current_lng': position.longitude,
       });
+      setState(() {
+        _doctorProfile['current_lat'] = position.latitude;
+        _doctorProfile['current_lng'] = position.longitude;
+      });
     } catch (e) {
       print('Error updating location: $e');
     }
+  }
+
+  void _showProfileView() {
+    final user = FirebaseAuth.instance.currentUser;
+    final profile = _doctorProfile;
+    final photoUrl = (profile['photo_url'] ?? '').toString();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1D5DB),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Profile View',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: const Color(0xFFDC2626),
+                        backgroundImage: photoUrl.isNotEmpty
+                            ? NetworkImage(photoUrl)
+                            : null,
+                        child: photoUrl.isEmpty
+                            ? Text(
+                                _doctorName.isEmpty
+                                    ? 'DR'
+                                    : _getInitials(_doctorName),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _doctorName.isEmpty ? 'Doctor' : _doctorName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _specialization.isEmpty
+                                  ? 'First Aid Volunteer'
+                                  : _specialization,
+                              style: const TextStyle(
+                                color: Color(0xFF6B7280),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _profileDetailRow('Name', profile['name']),
+                  _profileDetailRow('Email', profile['email'] ?? user?.email),
+                  _profileDetailRow('Phone', profile['phone']),
+                  _profileDetailRow('Specialization', profile['specialization']),
+                  _profileDetailRow('License Number', profile['license_number']),
+                  _profileDetailRow(
+                    'Approved',
+                    (profile['is_approved'] ?? false) ? 'Yes' : 'No',
+                  ),
+                  _profileDetailRow(
+                    'On Duty',
+                    (profile['is_on_duty'] ?? false) ? 'Yes' : 'No',
+                  ),
+                  _profileDetailRow('Current Latitude', profile['current_lat']),
+                  _profileDetailRow('Current Longitude', profile['current_lng']),
+                  // removed sensitive/verbose fields: FCM Token, Current Incident, Photo URL, Created At
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _profileDetailRow(String label, dynamic value) {
+    final textValue = value == null || value.toString().trim().isEmpty
+        ? '-'
+        : value.toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF374151),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              textValue,
+              style: const TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -244,21 +421,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     // Avatar
-                    Container(
-                      width: 52, height: 52,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: Center(
-                        child: Text(
-                          _doctorName.isEmpty ? 'DR' : _getInitials(_doctorName),
-                          style: const TextStyle(
-                            color: Color(0xFFDC2626),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          )),
+                    GestureDetector(
+                      onTap: _showProfileView,
+                      child: Container(
+                        width: 52, height: 52,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: Center(
+                          child: Text(
+                            _doctorName.isEmpty ? 'DR' : _getInitials(_doctorName),
+                            style: const TextStyle(
+                              color: Color(0xFFDC2626),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            )),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),

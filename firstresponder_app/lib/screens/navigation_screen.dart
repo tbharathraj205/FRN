@@ -7,6 +7,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'report_screen.dart';
 
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+
 class NavigationScreen extends StatefulWidget {
   final String incidentId;
   final String emergencyType;
@@ -35,12 +37,19 @@ class _NavigationScreenState extends State<NavigationScreen> {
   int _secondsLeft = 300;
   Position? _currentPosition;
   GoogleMapController? _mapController;
+  
+  // ✅ Route related variables
+  List<LatLng> _polylineCoordinates = [];
+  String _routeDistance = '';
+  String _routeDuration = '';
+  bool _routeLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _startLocationUpdates();
     _startCountdown();
+    _getRoute(); // ✅ Get route on init
   }
 
   @override
@@ -107,6 +116,48 @@ class _NavigationScreenState extends State<NavigationScreen> {
     } catch (e) {}
   }
 
+  // ✅ Fetch route from backend
+  Future<void> _getRoute() async {
+    if (_currentPosition == null) {
+      // Try again in a moment
+      await Future.delayed(const Duration(seconds: 1));
+      if (_currentPosition == null) return;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://us-central1-first-responder-network.cloudfunctions.net/get_route'
+          '?fromLat=${_currentPosition!.latitude}'
+          '&fromLng=${_currentPosition!.longitude}'
+          '&toLat=${widget.lat}'
+          '&toLng=${widget.lng}',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        
+        if (result['success']) {
+          // Decode polyline
+          final polylinePoints = PolylinePoints();
+          final decodedPolyline = polylinePoints.decodePolyline(result['polyline']);
+          
+          setState(() {
+            _polylineCoordinates = decodedPolyline
+                .map((point) => LatLng(point.latitude, point.longitude))
+                .toList();
+            _routeDistance = '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
+            _routeDuration = '${(result['durationMinutes'] as num).toInt()} min';
+            _routeLoaded = true;
+          });
+        }
+      }
+    } catch (e) {
+      // Silent fail - route is optional
+    }
+  }
+
   Future<void> _markOnScene() async {
     _locationTimer?.cancel();
     _countdownTimer?.cancel();
@@ -167,6 +218,15 @@ class _NavigationScreenState extends State<NavigationScreen> {
                   ),
                   icon: BitmapDescriptor.defaultMarkerWithHue(
                       BitmapDescriptor.hueAzure),
+                ),
+            },
+            polylines: {
+              if (_polylineCoordinates.isNotEmpty)
+                Polyline(
+                  polylineId: const PolylineId('route'),
+                  points: _polylineCoordinates,
+                  color: const Color(0xFF2563EB),
+                  width: 5,
                 ),
             },
             myLocationEnabled: true,
@@ -341,6 +401,69 @@ class _NavigationScreenState extends State<NavigationScreen> {
                       ],
                     ),
                   ),
+
+                  // ✅ Route Info Display
+                  if (_routeLoaded && _routeDistance.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xEFF0F9FF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF2563EB).withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Column(
+                            children: [
+                              const Text(
+                                'Distance',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              Text(
+                                _routeDistance,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1F2937),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            width: 1,
+                            height: 40,
+                            color: Colors.grey[300],
+                          ),
+                          Column(
+                            children: [
+                              const Text(
+                                'ETA',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              Text(
+                                _routeDuration,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1F2937),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 16),
 

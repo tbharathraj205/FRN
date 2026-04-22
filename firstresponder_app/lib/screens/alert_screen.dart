@@ -7,6 +7,7 @@ import 'navigation_screen.dart';
 import 'dart:math';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart'; // ✅ ADDED
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
 class AlertScreen extends StatefulWidget {
   final String incidentId;
@@ -35,11 +36,21 @@ class _AlertScreenState extends State<AlertScreen> {
 
   // ✅ ADDED
   String _address = 'Fetching address...';
+  
+  // ✅ Route related variables
+  List<LatLng> _polylineCoordinates = [];
+  String _routeDistance = '';
+  String _routeDuration = '';
+  bool _loadingRoute = false;
+  Position? _currentPosition;
 
   @override
   void initState() {
     super.initState();
-    _getAddress(); // ✅ CALL FUNCTION
+    _getAddress();
+    _getCurrentLocation();
+    // Auto-load route
+    Future.delayed(const Duration(milliseconds: 500), _getRoute);
   }
 
   // ✅ ADDED FUNCTION
@@ -59,6 +70,97 @@ class _AlertScreenState extends State<AlertScreen> {
       setState(() {
         _address = 'Near incident area';
       });
+    }
+  }
+
+  // ✅ Get doctor's current location
+  Future<void> _getCurrentLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      
+      if (permission == LocationPermission.whileInUse ||
+          permission == LocationPermission.always) {
+        final position = await Geolocator.getCurrentPosition();
+        setState(() {
+          _currentPosition = position;
+        });
+      }
+    } catch (e) {
+      // Use default location if permission denied
+      setState(() {
+        _currentPosition = Position(
+          latitude: 13.0827,
+          longitude: 80.2707,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          heading: 0,
+          speed: 0,
+          speedAccuracy: 0,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0,
+        );
+      });
+    }
+  }
+
+  // ✅ Fetch route from backend
+  Future<void> _getRoute() async {
+    if (_currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Getting your location...')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loadingRoute = true;
+      _polylineCoordinates = [];
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://us-central1-first-responder-network.cloudfunctions.net/get_route'
+          '?fromLat=${_currentPosition!.latitude}'
+          '&fromLng=${_currentPosition!.longitude}'
+          '&toLat=${widget.lat}'
+          '&toLng=${widget.lng}',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        
+        if (result['success']) {
+          // Decode polyline
+          final polylinePoints = PolylinePoints();
+          final decodedPolyline = polylinePoints.decodePolyline(result['polyline']);
+          
+          setState(() {
+            _polylineCoordinates = decodedPolyline
+                .map((point) => LatLng(point.latitude, point.longitude))
+                .toList();
+            _routeDistance = '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
+            _routeDuration = '${(result['durationMinutes'] as num).toInt()} min';
+            _loadingRoute = false;
+          });
+        }
+      } else {
+        throw Exception('Failed to get route: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _loadingRoute = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error getting route: $e')),
+        );
+      }
     }
   }
 
@@ -299,18 +401,63 @@ class _AlertScreenState extends State<AlertScreen> {
                                       BitmapDescriptor.hueRed),
                             ),
                           },
+                          polylines: {
+                            if (_polylineCoordinates.isNotEmpty)
+                              Polyline(
+                                polylineId: const PolylineId('route'),
+                                points: _polylineCoordinates,
+                                color: const Color(0xFF2563EB),
+                                width: 5,
+                              ),
+                          },
                           zoomControlsEnabled: false,
                           myLocationButtonEnabled: false,
                           myLocationEnabled: true,
                         ),
                       ),
                     ),
+
+                    // ✅ Route info if available
+                    if (_routeDistance.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xEFF0F9FF),
+                          border: Border.all(color: const Color(0xFF2563EB)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            Column(
+                              children: [
+                                const Text('Distance',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                Text(_routeDistance,
+                                    style: const TextStyle(
+                                        fontSize: 14, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            Column(
+                              children: [
+                                const Text('Duration',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                Text(_routeDuration,
+                                    style: const TextStyle(
+                                        fontSize: 14, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
 
-            // Bottom Buttons (unchanged)
+            // Bottom Buttons
             Container(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
               child: Column(

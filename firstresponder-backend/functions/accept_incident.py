@@ -1,4 +1,5 @@
 import math
+import json
 from firebase_admin import firestore
 from firebase_functions import https_fn
 from flask import Request
@@ -18,6 +19,12 @@ def accept_incident_handler(req: Request):
     """Handle incident acceptance with closest doctor priority"""
     db = firestore.client()
     
+    # CORS headers
+    headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+    }
+    
     try:
         request_json = req.get_json()
         doctor_id = request_json.get('doctorId')
@@ -25,18 +32,18 @@ def accept_incident_handler(req: Request):
         
         if not doctor_id or not incident_id:
             return https_fn.Response(
-                {'success': False, 'error': 'Missing doctorId or incidentId'},
+                json.dumps({'success': False, 'error': 'Missing doctorId or incidentId'}),
                 status=400,
-                mimetype='application/json'
+                headers=headers
             )
         
         # Get incident
         incident_doc = db.collection('incidents').document(incident_id).get()
         if not incident_doc.exists:
             return https_fn.Response(
-                {'success': False, 'error': 'Incident not found'},
+                json.dumps({'success': False, 'error': 'Incident not found'}),
                 status=404,
-                mimetype='application/json'
+                headers=headers
             )
         
         incident = incident_doc.to_dict()
@@ -51,9 +58,9 @@ def accept_incident_handler(req: Request):
             existing_doctor_doc = db.collection('doctors').document(existing_doctor_id).get()
             if not existing_doctor_doc.exists:
                 return https_fn.Response(
-                    {'success': False, 'error': 'Existing doctor not found'},
+                    json.dumps({'success': False, 'error': 'Existing doctor not found'}),
                     status=404,
-                    mimetype='application/json'
+                    headers=headers
                 )
             
             existing_doctor = existing_doctor_doc.to_dict()
@@ -64,9 +71,9 @@ def accept_incident_handler(req: Request):
             requesting_doctor_doc = db.collection('doctors').document(doctor_id).get()
             if not requesting_doctor_doc.exists:
                 return https_fn.Response(
-                    {'success': False, 'error': 'Doctor not found'},
+                    json.dumps({'success': False, 'error': 'Doctor not found'}),
                     status=404,
-                    mimetype='application/json'
+                    headers=headers
                 )
             
             requesting_doctor = requesting_doctor_doc.to_dict()
@@ -85,15 +92,15 @@ def accept_incident_handler(req: Request):
             else:
                 # Existing doctor is closer or same distance - keep existing
                 return https_fn.Response(
-                    {
+                    json.dumps({
                         'success': False,
                         'error': 'Another doctor is closer to the incident',
                         'assigned_to': existing_doctor_id,
                         'your_distance': round(requesting_distance, 2),
                         'closer_doctor_distance': round(existing_distance, 2)
-                    },
+                    }),
                     status=409,
-                    mimetype='application/json'
+                    headers=headers
                 )
         else:
             # No one has accepted yet
@@ -118,19 +125,19 @@ def accept_incident_handler(req: Request):
             })
         
         return https_fn.Response(
-            {
+            json.dumps({
                 'success': True,
                 'assigned_doctor_id': closer_doctor_id,
                 'incident_id': incident_id
-            },
+            }),
             status=200,
-            mimetype='application/json'
+            headers=headers
         )
         
     except Exception as e:
         return https_fn.Response(
-            {'success': False, 'error': str(e)},
+            json.dumps({'success': False, 'error': str(e)}),
             status=500,
-            mimetype='application/json'
+            headers=headers
         )
 

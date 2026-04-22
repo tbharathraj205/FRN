@@ -10,6 +10,7 @@ from incidents import on_doctor_accepted, on_incident_resolved
 from notifications import approve_doctor
 from reports import update_doctor_location, submit_report
 from accept_incident import accept_incident_handler
+from get_route import get_route
 
 # Explicitly expose them at module level
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "approve_doctor",
     "update_doctor_location",
     "submit_report",
-    "accept_incident_handler"
+    "accept_incident_handler",
+    "get_route"
 ]
