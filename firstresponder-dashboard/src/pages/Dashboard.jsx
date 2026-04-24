@@ -64,6 +64,7 @@ export default function Dashboard() {
     const [expandedIncId, setExpandedIncId] = useState(null);
     const [reportCache, setReportCache] = useState({});
     const [loadingReport, setLoadingReport] = useState(null);
+    const [addressCache, setAddressCache] = useState({});
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -107,6 +108,33 @@ export default function Dashboard() {
 
         return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
     }, []);
+
+    // Reverse geocode incidents that don't have an address
+    useEffect(() => {
+        incidents.forEach(async (inc) => {
+            // Skip if incident already has an address or we've already cached/attempted it
+            if (inc.address || addressCache[inc.id] !== undefined) return;
+            if (!inc.lat || !inc.lng) return;
+            // Mark as loading to prevent duplicate requests
+            setAddressCache((prev) => ({ ...prev, [inc.id]: null }));
+            try {
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${inc.lat}&lon=${inc.lng}`
+                );
+                const data = await response.json();
+                const addr = data.address?.road || data.address?.neighbourhood || data.display_name?.split(",").slice(0, 2).join(",") || `${inc.lat.toFixed(4)}, ${inc.lng.toFixed(4)}`;
+                setAddressCache((prev) => ({ ...prev, [inc.id]: addr }));
+            } catch {
+                setAddressCache((prev) => ({ ...prev, [inc.id]: `${inc.lat.toFixed(4)}, ${inc.lng.toFixed(4)}` }));
+            }
+        });
+    }, [incidents]);
+
+    const getIncidentAddress = (inc) => {
+        if (inc.address) return inc.address;
+        if (addressCache[inc.id]) return addressCache[inc.id];
+        return `${inc.lat?.toFixed(4)}, ${inc.lng?.toFixed(4)}`;
+    };
 
     const handleMapClick = async (lat, lng) => {
         const latFormatted = parseFloat(lat.toFixed(4));
@@ -284,6 +312,22 @@ export default function Dashboard() {
 
     return (
         <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#f5f5f5", color: "#333", fontFamily: "monospace" }}>
+            <style dangerouslySetInnerHTML={{ __html: `
+                .leaflet-tooltip.doctor-tooltip {
+                    background: white !important;
+                    border: 1px solid #e0e0e0 !important;
+                    border-radius: 10px !important;
+                    padding: 8px 14px !important;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+                    white-space: nowrap !important;
+                    max-width: none !important;
+                    width: max-content !important;
+                    overflow: visible !important;
+                }
+                .leaflet-tooltip.doctor-tooltip::before {
+                    border-top-color: white !important;
+                }
+            `}} />
 
             {/* Top Bar */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 20px", borderBottom: "1px solid #e0e0e0", background: "#c53030" }}>
@@ -384,7 +428,7 @@ export default function Dashboard() {
                             
                             return (
                                 <Marker key={doctor.id} position={[doctorLat, doctorLng]} icon={doctorIcon}>
-                                    <Tooltip permanent={false} direction="top" offset={[0, -10]}>
+                                    <Tooltip permanent={false} direction="top" offset={[0, -10]} className="doctor-tooltip">
                                         <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#333', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             {doctor.photo_url ? (
                                                 <img src={doctor.photo_url} alt={doctor.name} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -565,7 +609,7 @@ export default function Dashboard() {
                                                     <span style={{ fontSize: 18, color: "#c53030" }}>●</span>
                                                     <span style={{ fontWeight: "bold", fontSize: 14, color: "#333" }}>{inc.emergency_type}</span>
                                                 </div>
-                                                <span style={{ fontSize: 11, color: "#999", display: "block", marginTop: 4 }}>{getTimeAgo(inc.created_at)} · {inc.address || `${inc.lat?.toFixed(4)}, ${inc.lng?.toFixed(4)}`}</span>
+                                                <span style={{ fontSize: 11, color: "#999", display: "block", marginTop: 4 }}>{getTimeAgo(inc.created_at)} · {getIncidentAddress(inc)}</span>
                                             </div>
                                             <span style={{ background: inc.status === "pending" ? "#fef2f2" : "#f0f9ff", color: inc.status === "pending" ? "#c53030" : "#3b82f6", fontSize: 11, padding: "4px 10px", borderRadius: 12, fontWeight: "600", border: `1px solid ${inc.status === "pending" ? "#feca5d" : "#bfdbfe"}` }}>
                                                 {inc.status === "pending" ? "pending" : inc.status === "accepted" || inc.status === "on_scene" ? "active" : "resolved"}
@@ -574,7 +618,7 @@ export default function Dashboard() {
 
                                         {/* Location */}
                                         <div style={{ background: "#f9f9f9", borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 11, color: "#666", borderLeft: "3px solid #c53030" }}>
-                                            📍 {inc.address || `${inc.lat?.toFixed(4)}, ${inc.lng?.toFixed(4)}`}
+                                            📍 {getIncidentAddress(inc)}
                                         </div>
 
                                         {/* Ambulance ETA */}
