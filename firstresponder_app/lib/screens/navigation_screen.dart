@@ -9,6 +9,7 @@ import 'dart:math' as math;
 import 'dart:ui'; // Required for Glassmorphism blur
 import 'report_screen.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:geocoding/geocoding.dart';
 
 class NavigationScreen extends StatefulWidget {
   final String incidentId;
@@ -43,6 +44,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
   String _routeDistance = '';
   String _routeDuration = '';
   bool _routeLoaded = false;
+  String _address = 'Fetching address...';
 
   // ─────────────────────────────────────────────────────────────────────────
   // LOCAL CALCULATION — Haversine formula
@@ -88,8 +90,27 @@ class _NavigationScreenState extends State<NavigationScreen> {
   @override
   void initState() {
     super.initState();
+    _getAddress();
     _startLocationUpdates();
     _startCountdown();
+  }
+
+  Future<void> _getAddress() async {
+    try {
+      List<Placemark> placemarks =
+          await placemarkFromCoordinates(widget.lat, widget.lng);
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        setState(() {
+          _address =
+              '${p.street ?? ''}, ${p.subLocality ?? ''}, ${p.locality ?? ''}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _address = 'Near incident area';
+      });
+    }
   }
 
   @override
@@ -475,10 +496,10 @@ class _NavigationScreenState extends State<NavigationScreen> {
                 children: [
                   const Icon(Icons.location_on, color: Color(0xFF64748B)),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Anna Nagar, Sector 4, Block C, Chennai',
-                      style: TextStyle(
+                      _address,
+                      style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF1E293B),
                           fontSize: 14),

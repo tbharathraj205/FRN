@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase/config";
-import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, getDocs, limit } from "firebase/firestore";
 import { MapContainer, TileLayer, Marker, useMapEvents, Popup, Tooltip } from "react-leaflet";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../firebase/config";
@@ -61,6 +61,9 @@ export default function Dashboard() {
     const [pendingDoctors, setPendingDoctors] = useState([]);
     const [showApprovalModal, setShowApprovalModal] = useState(false);
     const [approvalLoading, setApprovalLoading] = useState({});
+    const [expandedIncId, setExpandedIncId] = useState(null);
+    const [reportCache, setReportCache] = useState({});
+    const [loadingReport, setLoadingReport] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -230,6 +233,46 @@ export default function Dashboard() {
             console.error("Error marking as resolved:", err);
             alert("Failed to mark as resolved");
         }
+    };
+
+    const fetchReport = async (incidentId) => {
+        if (reportCache[incidentId] !== undefined) return;
+        setLoadingReport(incidentId);
+        try {
+            const q = query(
+                collection(db, "reports"),
+                where("incident_id", "==", incidentId),
+                limit(1)
+            );
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+                setReportCache((prev) => ({ ...prev, [incidentId]: snap.docs[0].data() }));
+            } else {
+                setReportCache((prev) => ({ ...prev, [incidentId]: null }));
+            }
+        } catch (e) {
+            console.error("Error fetching report:", e);
+            setReportCache((prev) => ({ ...prev, [incidentId]: null }));
+        }
+        setLoadingReport(null);
+    };
+
+    const toggleExpandReport = (incidentId) => {
+        if (expandedIncId === incidentId) {
+            setExpandedIncId(null);
+        } else {
+            setExpandedIncId(incidentId);
+            fetchReport(incidentId);
+        }
+    };
+
+    const formatReportTimestamp = (ts) => {
+        if (!ts) return "Unknown";
+        const dt = ts.toDate ? ts.toDate() : new Date(ts);
+        return dt.toLocaleString("en-IN", {
+            day: "numeric", month: "short", year: "numeric",
+            hour: "numeric", minute: "2-digit", hour12: true,
+        });
     };
 
     const statusColors = {
@@ -547,6 +590,107 @@ export default function Dashboard() {
                                                     <span style={{ fontSize: 12, fontWeight: "600", color: "#333" }}>Dr. {onDutyDoctors.find(d => d.id === inc.assigned_doctor_id)?.name || "Unknown"}</span>
                                                     <span style={{ fontSize: 10, color: "#999", fontWeight: "600" }}>Notified</span>
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {/* View Report Toggle */}
+                                        <button
+                                            onClick={() => toggleExpandReport(inc.id)}
+                                            style={{
+                                                width: "100%",
+                                                padding: "8px",
+                                                borderRadius: 8,
+                                                border: "1px solid #e0e0e0",
+                                                background: expandedIncId === inc.id ? "#fef2f2" : "#f9f9f9",
+                                                color: expandedIncId === inc.id ? "#c53030" : "#666",
+                                                fontWeight: "600",
+                                                fontSize: 11,
+                                                cursor: "pointer",
+                                                transition: "all 0.2s",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                gap: 6,
+                                            }}
+                                        >
+                                            {expandedIncId === inc.id ? "▲ Hide Report" : "▼ View Report"}
+                                        </button>
+
+                                        {/* Expandable Report Section */}
+                                        {expandedIncId === inc.id && (
+                                            <div style={{ marginTop: 8, padding: 12, background: "#f9fafb", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+                                                {loadingReport === inc.id ? (
+                                                    <div style={{ textAlign: "center", padding: 12, color: "#999", fontSize: 12 }}>⏳ Loading report...</div>
+                                                ) : reportCache[inc.id] === null || reportCache[inc.id] === undefined ? (
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#ef4444", fontSize: 12, padding: 8, background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
+                                                        ℹ️ No report submitted for this incident.
+                                                    </div>
+                                                ) : (() => {
+                                                    const report = reportCache[inc.id];
+                                                    const outcome = report.outcome || "N/A";
+                                                    const notes = report.notes || "No notes";
+                                                    const actionsTaken = report.actions_taken || [];
+                                                    const vitals = report.vitals || [];
+                                                    return (
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                                            {/* Outcome */}
+                                                            <div>
+                                                                <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: "bold", letterSpacing: 0.8, marginBottom: 4 }}>🏁 OUTCOME</div>
+                                                                <span style={{
+                                                                    display: "inline-block", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: "600",
+                                                                    background: outcome.toLowerCase().includes("success") || outcome.toLowerCase().includes("stabilized") ? "#f0fdf4" :
+                                                                               outcome.toLowerCase().includes("critical") || outcome.toLowerCase().includes("ambulance") ? "#fffbeb" : "#f9fafb",
+                                                                    color: outcome.toLowerCase().includes("success") || outcome.toLowerCase().includes("stabilized") ? "#15803d" :
+                                                                           outcome.toLowerCase().includes("critical") || outcome.toLowerCase().includes("ambulance") ? "#b45309" : "#374151",
+                                                                    border: `1px solid ${outcome.toLowerCase().includes("success") || outcome.toLowerCase().includes("stabilized") ? "#bbf7d0" :
+                                                                                          outcome.toLowerCase().includes("critical") || outcome.toLowerCase().includes("ambulance") ? "#fde68a" : "#e5e7eb"}`,
+                                                                }}>{outcome}</span>
+                                                            </div>
+
+                                                            {/* Actions Taken */}
+                                                            {actionsTaken.length > 0 && (
+                                                                <div>
+                                                                    <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: "bold", letterSpacing: 0.8, marginBottom: 4 }}>✅ ACTIONS TAKEN</div>
+                                                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                                                        {actionsTaken.map((action, i) => (
+                                                                            <span key={i} style={{ padding: "3px 8px", background: "#eff6ff", color: "#1d4ed8", fontSize: 10, fontWeight: "600", borderRadius: 6, border: "1px solid #bfdbfe" }}>
+                                                                                {action}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Vitals */}
+                                                            {vitals.length > 0 && (
+                                                                <div>
+                                                                    <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: "bold", letterSpacing: 0.8, marginBottom: 4 }}>💊 VITALS</div>
+                                                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                                                        {vitals.map((vital, i) => (
+                                                                            <span key={i} style={{ padding: "3px 8px", background: "#f0fdf4", color: "#15803d", fontSize: 10, fontWeight: "600", borderRadius: 6, border: "1px solid #bbf7d0" }}>
+                                                                                {vital}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Notes */}
+                                                            <div>
+                                                                <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: "bold", letterSpacing: 0.8, marginBottom: 4 }}>📝 NOTES</div>
+                                                                <div style={{ background: "white", padding: 8, borderRadius: 6, border: "1px solid #e5e7eb", fontSize: 11, color: "#374151", lineHeight: 1.5 }}>
+                                                                    {notes}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Submitted At */}
+                                                            <div>
+                                                                <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: "bold", letterSpacing: 0.8, marginBottom: 4 }}>🕐 SUBMITTED AT</div>
+                                                                <span style={{ fontSize: 11, color: "#6b7280", fontWeight: "600" }}>{formatReportTimestamp(report.submitted_at)}</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
 
