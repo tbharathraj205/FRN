@@ -4,7 +4,7 @@ import os
 from firebase_functions import https_fn
 
 # Get API key from environment, fallback to hardcoded value
-GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', 'AIzaSyAWEw5188AQlG7CLaGNTb4Irf00ypf9qQw')
+GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
 
 
 @https_fn.on_request()

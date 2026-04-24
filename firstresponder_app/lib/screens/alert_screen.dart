@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'navigation_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart'; 
@@ -153,13 +154,15 @@ class _AlertScreenState extends State<AlertScreen> {
             // API values are more accurate — overwrite the local estimate
             _routeDistance = '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
             _routeDuration = '${(result['durationMinutes'] as num).toInt()} min';
-            _loadingRoute = false;
           });
         }
       }
     } catch (e) {
       // Silently keep the local estimate already shown
-      setState(() { _loadingRoute = false; });
+    } finally {
+      if (mounted) {
+        setState(() { _loadingRoute = false; });
+      }
     }
   }
 
@@ -168,9 +171,15 @@ class _AlertScreenState extends State<AlertScreen> {
   Future<void> _respond() async {
     setState(() { _responding = true; });
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      final idToken = await user?.getIdToken() ?? '';
+      
       final response = await http.post(
         Uri.parse('https://us-central1-first-responder-network.cloudfunctions.net/accept_incident_handler'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
         body: jsonEncode({'doctorId': widget.doctorId, 'incidentId': widget.incidentId}),
       );
       if (response.statusCode == 200) {

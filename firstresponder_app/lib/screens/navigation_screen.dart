@@ -9,6 +9,7 @@ import 'dart:math' as math;
 import 'dart:ui'; // Required for Glassmorphism blur
 import 'report_screen.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 
 class NavigationScreen extends StatefulWidget {
@@ -185,9 +186,15 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   Future<void> _updateLocationToBackend(double lat, double lng) async {
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      final idToken = await user?.getIdToken() ?? '';
+
       await http.post(
-        Uri.parse('https://update-doctor-location-kl4browlmq-uc.a.run.app'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('https://us-central1-first-responder-network.cloudfunctions.net/update_doctor_location'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
         body: jsonEncode({
           'doctorId': widget.doctorId,
           'lat': lat,
@@ -209,27 +216,31 @@ class _NavigationScreenState extends State<NavigationScreen> {
           '&toLng=${widget.lng}',
         ),
       );
+
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
-        if (result['success'] == true) {
+        if (result['success']) {
           final polylinePoints = PolylinePoints();
-          final decodedPolyline =
-              polylinePoints.decodePolyline(result['polyline']);
-          setState(() {
-            _polylineCoordinates = decodedPolyline
-                .map((p) => LatLng(p.latitude, p.longitude))
-                .toList();
-            // API values are more accurate — overwrite the local estimate
-            _routeDistance =
-                '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
-            _routeDuration =
-                '${(result['durationMinutes'] as num).toInt()} min';
-            _routeLoaded = true;
-          });
+          final decodedPolyline = polylinePoints.decodePolyline(result['polyline']);
+          if (mounted) {
+            setState(() {
+              _polylineCoordinates = decodedPolyline
+                  .map((p) => LatLng(p.latitude, p.longitude))
+                  .toList();
+              // API values are more accurate — overwrite the local estimate
+              _routeDistance = '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
+              _routeDuration = '${(result['durationMinutes'] as num).toInt()} min';
+              _routeLoaded = true;
+            });
+          }
         }
       }
     } catch (e) {
-      // Silently keep the local estimate already shown
+      // Keep local estimate if API fails
+    } finally {
+      if (mounted) {
+        setState(() { _routeLoaded = true; });
+      }
     }
   }
 

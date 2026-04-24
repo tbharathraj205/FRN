@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'home_screen.dart';
 
 class ReportScreen extends StatefulWidget {
@@ -42,9 +43,15 @@ class _ReportScreenState extends State<ReportScreen> {
   Future<void> _submitReport() async {
     setState(() { _loading = true; });
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      final idToken = await user?.getIdToken() ?? '';
+
       await http.post(
-        Uri.parse('https://submit-report-kl4browlmq-uc.a.run.app'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('https://us-central1-first-responder-network.cloudfunctions.net/submit_report'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
         body: jsonEncode({
           'incidentId': widget.incidentId,
           'doctorId': widget.doctorId,

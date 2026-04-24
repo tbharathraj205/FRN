@@ -292,8 +292,6 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildStatGrid(),
           const SizedBox(height: 24),
           _buildRecentActivity(),
-          const SizedBox(height: 24),
-          _buildEmergencyAction(),
           const SizedBox(height: 40),
         ],
       ),
@@ -490,33 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildEmergencyAction() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AlertScreen(
-            incidentId: '93uUSPPQEuTlQaivvE33',
-            emergencyType: 'Cardiac Arrest',
-            lat: 13.0337,
-            lng: 80.18,
-            ambulanceEta: '12',
-            doctorId: _doctorId,
-          ))),
-          icon: const Icon(Icons.bolt_rounded, color: Colors.white),
-          label: const Text('TEST EMERGENCY ALERT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1, fontSize: 15)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFDC2626),
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            elevation: 8,
-            shadowColor: const Color(0xFFDC2626).withOpacity(0.4),
-          ),
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildHistory() {
     return const HistoryScreen();
