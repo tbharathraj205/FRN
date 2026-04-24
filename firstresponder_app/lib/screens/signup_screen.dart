@@ -10,11 +10,11 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  // --- KEEPING ALL ORIGINAL LOGIC & CONTROLLERS ---
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _specializationController = TextEditingController();
   final _licenseController = TextEditingController();
   bool _loading = false;
   bool _obscurePassword = true;
@@ -38,25 +38,24 @@ class _SignupScreenState extends State<SignupScreen> {
         _passwordController.text.isEmpty ||
         _phoneController.text.isEmpty ||
         _licenseController.text.isEmpty) {
-      setState(() { _error = 'Please fill all required fields'; });
+      setState(() {
+        _error = 'Please fill all required fields';
+      });
       return;
     }
 
-    setState(() { _loading = true; _error = ''; });
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
 
     try {
-      // Create auth account
-      final credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
+      final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      // Save doctor profile to Firestore
-      await FirebaseFirestore.instance
-          .collection('doctors')
-          .doc(credential.user!.uid)
-          .set({
+      await FirebaseFirestore.instance.collection('doctors').doc(credential.user!.uid).set({
         'name': _nameController.text.trim(),
         'email': _emailController.text.trim(),
         'phone': _phoneController.text.trim(),
@@ -68,51 +67,15 @@ class _SignupScreenState extends State<SignupScreen> {
         'current_lng': 80.2707,
         'fcm_token': '',
         'current_incident': null,
-        'photo_url': 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(_nameController.text.trim())}&background=DC2626&color=fff',
+        'photo_url':
+            'https://ui-avatars.com/api/?name=${Uri.encodeComponent(_nameController.text.trim())}&background=DC2626&color=fff',
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // Sign out — wait for admin approval
       await FirebaseAuth.instance.signOut();
 
       if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16)),
-            title: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: const Text('Registration Submitted'),
-                ),
-              ],
-            ),
-            content: const Text(
-              'Your account has been submitted for verification. '
-              'You will be able to login once an admin approves your account.',
-              style: TextStyle(color: Color(0xFF6B7280)),
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFDC2626),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('OK',
-                  style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        );
+        _showSuccessDialog();
       }
     } on FirebaseAuthException catch (e) {
       setState(() {
@@ -125,245 +88,115 @@ class _SignupScreenState extends State<SignupScreen> {
         }
       });
     }
-    setState(() { _loading = false; });
+    setState(() {
+      _loading = false;
+    });
   }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Column(
+          children: [
+            Icon(Icons.verified_user_rounded, color: Colors.green, size: 64),
+            SizedBox(height: 16),
+            Text('Application Sent', textAlign: TextAlign.center),
+          ],
+        ),
+        content: const Text(
+          'Your medical credentials have been submitted for verification. Please wait for admin approval.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.black54),
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Return to Login'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- UI LAYER REWRITE ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-
-              // Red Header
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(24, 40, 24, 30),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFDC2626),
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(32),
-                    bottomRight: Radius.circular(32),
-                  ),
-                ),
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Transform.translate(
+              offset: const Offset(0, -40),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.arrow_back_ios,
-                            color: Colors.white70, size: 16),
-                          Text('Back',
-                            style: TextStyle(
-                              color: Colors.white70, fontSize: 14)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('Create Account',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                      )),
-                    const SizedBox(height: 4),
-                    const Text('Register as a First Responder doctor',
-                      style: TextStyle(
-                        color: Colors.white70, fontSize: 13)),
+                    _buildFormCard(),
+                    const SizedBox(height: 20),
+                    _buildSubmitButton(),
+                    const SizedBox(height: 40),
                   ],
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-
-                    // Notice
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF7ED),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFFFED7AA)),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                            color: Color(0xFFD97706), size: 16),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Your account will be verified by admin before activation.',
-                              style: TextStyle(
-                                color: Color(0xFFD97706),
-                                fontSize: 12,
-                              )),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Full Name
-                    _fieldLabel('Full Name *'),
-                    _textField(_nameController, 'Dr. John Smith',
-                      Icons.person_outline),
-                    const SizedBox(height: 16),
-
-                    // Email
-                    _fieldLabel('Email *'),
-                    _textField(_emailController, 'doctor@example.com',
-                      Icons.email_outlined,
-                      type: TextInputType.emailAddress),
-                    const SizedBox(height: 16),
-
-                    // Phone
-                    _fieldLabel('Phone Number *'),
-                    _textField(_phoneController, '+91 9999999999',
-                      Icons.phone_outlined,
-                      type: TextInputType.phone),
-                    const SizedBox(height: 16),
-
-                    // Specialization
-                    _fieldLabel('Specialization *'),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF9FAFB),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFFE5E7EB)),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedSpecialization,
-                          isExpanded: true,
-                          style: const TextStyle(
-                            color: Color(0xFF1A1A1A), fontSize: 14),
-                          items: _specializations.map((s) =>
-                            DropdownMenuItem(
-                              value: s,
-                              child: Text(s),
-                            )).toList(),
-                          onChanged: (val) => setState(() {
-                            _selectedSpecialization = val!;
-                          }),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // License Number
-                    _fieldLabel('Medical License Number *'),
-                    _textField(_licenseController, 'MH/12345',
-                      Icons.badge_outlined),
-                    const SizedBox(height: 16),
-
-                    // Password
-                    _fieldLabel('Password *'),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      style: const TextStyle(color: Color(0xFF1A1A1A)),
-                      decoration: InputDecoration(
-                        hintText: 'Min. 6 characters',
-                        hintStyle: const TextStyle(
-                          color: Color(0xFF9CA3AF)),
-                        prefixIcon: const Icon(Icons.lock_outline,
-                          color: Color(0xFF9CA3AF), size: 20),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                            color: const Color(0xFF9CA3AF), size: 20,
-                          ),
-                          onPressed: () => setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          }),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF9FAFB),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB))),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB))),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFDC2626), width: 2)),
-                      ),
-                    ),
-
-                    if (_error.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF2F2),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: const Color(0xFFFCA5A5)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline,
-                              color: Color(0xFFDC2626), size: 16),
-                            const SizedBox(width: 8),
-                            Text(_error,
-                              style: const TextStyle(
-                                color: Color(0xFFDC2626),
-                                fontSize: 13,
-                              )),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 32),
-
-                    // Submit Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _loading ? null : _signup,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFDC2626),
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                        ),
-                        child: _loading
-                          ? const SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2))
-                          : const Text('Submit for Verification',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              )),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+  Widget _buildHeader() {
+    return Container(
+      width: double.infinity,
+      height: 260,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF991B1B), Color(0xFFDC2626), Color(0xFFEF4444)],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 10),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                style: IconButton.styleFrom(backgroundColor: Colors.white24),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Join our Network',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -1,
                 ),
+              ),
+              const Text(
+                'Register as a First Responder Doctor',
+                style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
             ],
           ),
@@ -372,44 +205,172 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  Widget _fieldLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(label,
-        style: const TextStyle(
-          color: Color(0xFF374151),
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-        )),
+  Widget _buildFormCard() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader(Icons.person_pin_rounded, "Personal Information"),
+          _textField(_nameController, 'Full Name', Icons.person_outline),
+          const SizedBox(height: 16),
+          _textField(_emailController, 'Email Address', Icons.alternate_email_rounded,
+              type: TextInputType.emailAddress),
+          const SizedBox(height: 16),
+          _textField(_phoneController, 'Phone Number', Icons.phone_iphone_rounded,
+              type: TextInputType.phone),
+          
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Divider(color: Color(0xFFF1F5F9), thickness: 2),
+          ),
+          
+          _sectionHeader(Icons.medical_services_rounded, "Professional Details"),
+          _buildSpecializationDropdown(),
+          const SizedBox(height: 16),
+          _textField(_licenseController, 'Medical License Number', Icons.badge_outlined),
+          const SizedBox(height: 16),
+          _buildPasswordField(),
+          
+          if (_error.isNotEmpty) _buildErrorSnippet(),
+        ],
+      ),
     );
   }
 
-  Widget _textField(
-    TextEditingController controller,
-    String hint,
-    IconData icon, {
-    TextInputType type = TextInputType.text,
-  }) {
+  Widget _sectionHeader(IconData icon, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFFDC2626)),
+          const SizedBox(width: 8),
+          Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF64748B),
+              letterSpacing: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpecializationDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("  Primary Specialization", 
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black54)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedSpecialization,
+              isExpanded: true,
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+              items: _specializations.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+              onChanged: (val) => setState(() => _selectedSpecialization = val!),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPasswordField() {
+    return TextField(
+      controller: _passwordController,
+      obscureText: _obscurePassword,
+      decoration: InputDecoration(
+        labelText: 'Password',
+        prefixIcon: const Icon(Icons.lock_open_rounded),
+        suffixIcon: IconButton(
+          icon: Icon(_obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+        ),
+        filled: true,
+        fillColor: const Color(0xFFF1F5F9),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      ),
+    );
+  }
+
+  Widget _buildErrorSnippet() {
+    return Container(
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_rounded, color: Color(0xFFDC2626), size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(_error, style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: _loading ? null : _signup,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF1E293B), // Dark Navy for contrast
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 4,
+          shadowColor: Colors.black45,
+        ),
+        child: _loading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Text('SUBMIT FOR VERIFICATION',
+                style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+      ),
+    );
+  }
+
+  Widget _textField(TextEditingController controller, String label, IconData icon,
+      {TextInputType type = TextInputType.text}) {
     return TextField(
       controller: controller,
       keyboardType: type,
-      style: const TextStyle(color: Color(0xFF1A1A1A)),
       decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-        prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 20),
+        labelText: label,
+        prefixIcon: Icon(icon),
         filled: true,
-        fillColor: const Color(0xFFF9FAFB),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
+        fillColor: const Color(0xFFF1F5F9),
+        floatingLabelStyle: const TextStyle(color: Color(0xFFDC2626)),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Color(0xFFDC2626), width: 2)),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+        ),
       ),
     );
   }

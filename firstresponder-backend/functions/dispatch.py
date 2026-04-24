@@ -36,7 +36,7 @@ def on_incident_created(event: firestore_fn.Event[firestore_fn.DocumentSnapshot]
         
         if doc_lat and doc_lng:
             distance = haversine(incident_lat, incident_lng, doc_lat, doc_lng)
-            if distance <= 50.0:
+            if distance <= 2.0:
                 nearby_doctors.append({
                     "doctorId": doctor.id,
                     "fcm_token": doc.get("fcm_token"),

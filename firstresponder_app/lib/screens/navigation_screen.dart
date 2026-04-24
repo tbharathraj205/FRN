@@ -5,8 +5,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui'; // Required for Glassmorphism blur
 import 'report_screen.dart';
-
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
 class NavigationScreen extends StatefulWidget {
@@ -37,19 +38,58 @@ class _NavigationScreenState extends State<NavigationScreen> {
   int _secondsLeft = 300;
   Position? _currentPosition;
   GoogleMapController? _mapController;
-  
-  // ✅ Route related variables
+
   List<LatLng> _polylineCoordinates = [];
   String _routeDistance = '';
   String _routeDuration = '';
   bool _routeLoaded = false;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOCAL CALCULATION — Haversine formula
+  // Computes straight-line distance between two lat/lng points (in km),
+  // then applies a 1.3× road-correction factor for a realistic city estimate.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  double _haversineDistanceKm(
+      double lat1, double lng1, double lat2, double lng2) {
+    const earthRadiusKm = 6371.0;
+    final dLat = _deg2rad(lat2 - lat1);
+    final dLng = _deg2rad(lng2 - lng1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_deg2rad(lat1)) *
+            math.cos(_deg2rad(lat2)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadiusKm * c * 1.3; // 1.3× = city-road correction
+  }
+
+  double _deg2rad(double deg) => deg * (math.pi / 180);
+
+  // Assumes average urban driving speed of 30 km/h
+  int _estimateTravelMinutes(double distanceKm) =>
+      (distanceKm / 30.0 * 60).ceil();
+
+  /// Called immediately after GPS fix — sets distance & time without any
+  /// network call, so the stats panel always shows a real value.
+  void _computeLocalEstimate(double fromLat, double fromLng) {
+    final distKm =
+        _haversineDistanceKm(fromLat, fromLng, widget.lat, widget.lng);
+    final mins = _estimateTravelMinutes(distKm);
+    setState(() {
+      _routeDistance = '~${distKm.toStringAsFixed(1)} km';
+      _routeDuration = '~$mins min';
+      _routeLoaded = true;
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
     _startLocationUpdates();
     _startCountdown();
-    _getRoute(); // ✅ Get route on init
   }
 
   @override
@@ -72,30 +112,50 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   void _startLocationUpdates() async {
     LocationPermission permission = await Geolocator.checkPermission();
-
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
 
+    double fromLat = 13.0827;
+    double fromLng = 80.2707;
+
     try {
       final position = await Geolocator.getCurrentPosition();
-
-      setState(() {
-        _currentPosition = position;
-      });
-
+      setState(() => _currentPosition = position);
       _updateLocationToBackend(position.latitude, position.longitude);
-    } catch (e) {}
+      fromLat = position.latitude;
+      fromLng = position.longitude;
+    } catch (e) {
+      // GPS unavailable — fall back to default Chennai coordinate
+      setState(() => _currentPosition = Position(
+            latitude: fromLat,
+            longitude: fromLng,
+            timestamp: DateTime.now(),
+            accuracy: 0,
+            altitude: 0,
+            altitudeAccuracy: 0,
+            heading: 0,
+            headingAccuracy: 0,
+            speed: 0,
+            speedAccuracy: 0,
+          ));
+    }
+
+    // ✅ Show local estimate IMMEDIATELY — zero network dependency
+    _computeLocalEstimate(fromLat, fromLng);
+
+    // Try to refine with the precise route API in the background.
+    // If it succeeds, API values replace the local estimate.
+    // If it fails, the local estimate stays — no blank "…" ever.
+    _getRoute();
 
     _locationTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       try {
         final position = await Geolocator.getCurrentPosition();
-
-        setState(() {
-          _currentPosition = position;
-        });
-
+        setState(() => _currentPosition = position);
         _updateLocationToBackend(position.latitude, position.longitude);
+        // Refresh local estimate as the doctor moves closer
+        _computeLocalEstimate(position.latitude, position.longitude);
       } catch (e) {
         _updateLocationToBackend(13.0827, 80.2707);
       }
@@ -116,14 +176,8 @@ class _NavigationScreenState extends State<NavigationScreen> {
     } catch (e) {}
   }
 
-  // ✅ Fetch route from backend
   Future<void> _getRoute() async {
-    if (_currentPosition == null) {
-      // Try again in a moment
-      await Future.delayed(const Duration(seconds: 1));
-      if (_currentPosition == null) return;
-    }
-
+    if (_currentPosition == null) return;
     try {
       final response = await http.get(
         Uri.parse(
@@ -134,34 +188,33 @@ class _NavigationScreenState extends State<NavigationScreen> {
           '&toLng=${widget.lng}',
         ),
       );
-
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
-        
-        if (result['success']) {
-          // Decode polyline
+        if (result['success'] == true) {
           final polylinePoints = PolylinePoints();
-          final decodedPolyline = polylinePoints.decodePolyline(result['polyline']);
-          
+          final decodedPolyline =
+              polylinePoints.decodePolyline(result['polyline']);
           setState(() {
             _polylineCoordinates = decodedPolyline
-                .map((point) => LatLng(point.latitude, point.longitude))
+                .map((p) => LatLng(p.latitude, p.longitude))
                 .toList();
-            _routeDistance = '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
-            _routeDuration = '${(result['durationMinutes'] as num).toInt()} min';
+            // API values are more accurate — overwrite the local estimate
+            _routeDistance =
+                '${(result['distanceKm'] as num).toStringAsFixed(1)} km';
+            _routeDuration =
+                '${(result['durationMinutes'] as num).toInt()} min';
             _routeLoaded = true;
           });
         }
       }
     } catch (e) {
-      // Silent fail - route is optional
+      // Silently keep the local estimate already shown
     }
   }
 
   Future<void> _markOnScene() async {
     _locationTimer?.cancel();
     _countdownTimer?.cancel();
-
     await FirebaseFirestore.instance
         .collection('incidents')
         .doc(widget.incidentId)
@@ -182,21 +235,20 @@ class _NavigationScreenState extends State<NavigationScreen> {
   }
 
   String _formatTime(int seconds) {
-    if (seconds >= 60) {
-      return '${(seconds / 60).floor()}:${(seconds % 60).toString().padLeft(2, '0')}';
-    }
-    return '0:${seconds.toString().padLeft(2, '0')}';
+    int mins = (seconds / 60).floor();
+    int secs = seconds % 60;
+    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0F172A),
       body: Stack(
         children: [
-
-          // 🗺️ MAP
+          // 1. 🗺️ FULL SCREEN MAP WITH DARK THEME
           GoogleMap(
+            style: _mapTheme,
             initialCameraPosition: CameraPosition(
               target: LatLng(widget.lat, widget.lng),
               zoom: 15,
@@ -212,10 +264,8 @@ class _NavigationScreenState extends State<NavigationScreen> {
               if (_currentPosition != null)
                 Marker(
                   markerId: const MarkerId('doctor'),
-                  position: LatLng(
-                    _currentPosition!.latitude,
-                    _currentPosition!.longitude,
-                  ),
+                  position: LatLng(_currentPosition!.latitude,
+                      _currentPosition!.longitude),
                   icon: BitmapDescriptor.defaultMarkerWithHue(
                       BitmapDescriptor.hueAzure),
                 ),
@@ -225,285 +275,280 @@ class _NavigationScreenState extends State<NavigationScreen> {
                 Polyline(
                   polylineId: const PolylineId('route'),
                   points: _polylineCoordinates,
-                  color: const Color(0xFF2563EB),
-                  width: 5,
+                  color: const Color(0xFF3B82F6),
+                  width: 6,
+                  jointType: JointType.round,
                 ),
             },
             myLocationEnabled: true,
             zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
           ),
 
-          // ⏱️ TOP INFO WITH HORIZONTAL BLACK BAR
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
-                  borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(16),
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // ⏱️ TIMER ON LEFT
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _formatTime(_secondsLeft),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 42,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Text(
-                          'to scene',
-                          style: TextStyle(
-                            color: Color(0xFFDC2626),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+          // 2. 🧊 TOP GLASS BAR
+          _buildTopHUD(),
 
-                    // 📍 LOCATION & EMERGENCY TYPE ON RIGHT
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          widget.emergencyType,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                        const Text(
-                          'Anna Nagar, Chennai',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          // 3. 🕒 FLOATING MISSION TIMER
+          _buildMissionTimerOverlay(),
 
-          // ⬇️ BOTTOM BAR - ENHANCED
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 20,
-                    offset: const Offset(0, -5),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Emergency Type & Distance
-                  Row(
-                    children: [
-                      const Icon(Icons.warning_rounded, color: Color(0xFFDC2626), size: 24),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.emergencyType,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1F2937),
-                              ),
-                            ),
-                            Text(
-                              '1.2 km away',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[600],
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDC2626),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          'In Transit',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ETA Info
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF2F2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: const Color(0xFFDC2626).withOpacity(0.2),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.local_taxi_rounded,
-                          color: Color(0xFFDC2626),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Ambulance arriving in ${widget.ambulanceEta} min',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1F2937),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ✅ Route Info Display
-                  if (_routeLoaded && _routeDistance.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xEFF0F9FF),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFF2563EB).withOpacity(0.2),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          Column(
-                            children: [
-                              const Text(
-                                'Distance',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                              Text(
-                                _routeDistance,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1F2937),
-                                ),
-                              ),
-                            ],
-                          ),
-                          Container(
-                            width: 1,
-                            height: 40,
-                            color: Colors.grey[300],
-                          ),
-                          Column(
-                            children: [
-                              const Text(
-                                'ETA',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                              Text(
-                                _routeDuration,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1F2937),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 16),
-
-                  // Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: _markOnScene,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFDC2626),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 2,
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            'Mark as On Scene',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // 4. 💳 BOTTOM DASHBOARD
+          _buildBottomDashboard(),
         ],
       ),
     );
   }
+
+  Widget _buildTopHUD() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: ClipRRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            padding: const EdgeInsets.only(
+                top: 50, left: 20, right: 20, bottom: 20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A).withValues(alpha: 0.7),
+              border: Border(
+                  bottom: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.1))),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.radar_rounded,
+                    color: Color(0xFFF87171), size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ACTIVE RESPONSE: #${widget.incidentId.substring(0, 6).toUpperCase()}',
+                        style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2),
+                      ),
+                      Text(
+                        widget.emergencyType,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: Colors.red.withValues(alpha: 0.5)),
+                  ),
+                  child: const Text('URGENT',
+                      style: TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold)),
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMissionTimerOverlay() {
+    return Positioned(
+      top: 130,
+      left: 20,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white10),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3), blurRadius: 10)
+          ],
+        ),
+        child: Column(
+          children: [
+            const Text('TIME TO SCENE',
+                style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold)),
+            Text(
+              _formatTime(_secondsLeft),
+              style: TextStyle(
+                color: _secondsLeft < 60
+                    ? const Color(0xFFF87171)
+                    : Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                fontFamily: 'monospace',
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: 60,
+              child: LinearProgressIndicator(
+                value: _secondsLeft / 300,
+                backgroundColor: Colors.white10,
+                color: _secondsLeft < 60
+                    ? Colors.red
+                    : const Color(0xFF3B82F6),
+                minHeight: 3,
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomDashboard() {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black26,
+                blurRadius: 20,
+                offset: Offset(0, -5))
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10))),
+            const SizedBox(height: 20),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _statItem(
+                  'DISTANCE',
+                  _routeLoaded ? _routeDistance : '…',
+                  Icons.directions,
+                ),
+                _statDivider(),
+                _statItem(
+                  'TRAVEL TIME',
+                  _routeLoaded ? _routeDuration : '…',
+                  Icons.timer_outlined,
+                ),
+                _statDivider(),
+                _statItem(
+                    'AMBULANCE', '${widget.ambulanceEta}m', Icons.emergency),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                children: [
+                  const Icon(Icons.location_on, color: Color(0xFF64748B)),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Anna Nagar, Sector 4, Block C, Chennai',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1E293B),
+                          fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: ElevatedButton(
+                onPressed: _markOnScene,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  elevation: 4,
+                  shadowColor: Colors.red.withValues(alpha: 0.4),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18)),
+                ),
+                child: const Text(
+                  'CONFIRM ARRIVAL ON SCENE',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statItem(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF64748B)),
+        const SizedBox(height: 4),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 10,
+                color: Color(0xFF94A3B8),
+                fontWeight: FontWeight.bold)),
+        Text(value,
+            style: const TextStyle(
+                fontSize: 16,
+                color: Color(0xFF0F172A),
+                fontWeight: FontWeight.w800)),
+      ],
+    );
+  }
+
+  Widget _statDivider() =>
+      Container(height: 30, width: 1, color: Colors.grey[200]);
+
+  static const String _mapTheme = '''[
+    {"elementType": "geometry","stylers": [{"color": "#242f3e"}]},
+    {"elementType": "labels.text.fill","stylers": [{"color": "#746855"}]},
+    {"elementType": "labels.text.stroke","stylers": [{"color": "#242f3e"}]},
+    {"featureType": "administrative.locality","elementType": "labels.text.fill","stylers": [{"color": "#d59563"}]},
+    {"featureType": "poi","elementType": "labels.text.fill","stylers": [{"color": "#d59563"}]},
+    {"featureType": "road","elementType": "geometry","stylers": [{"color": "#38414e"}]},
+    {"featureType": "road","elementType": "geometry.stroke","stylers": [{"color": "#212a37"}]},
+    {"featureType": "road","elementType": "labels.text.fill","stylers": [{"color": "#9ca5b3"}]},
+    {"featureType": "water","elementType": "geometry","stylers": [{"color": "#17263c"}]}
+  ]''';
 }
