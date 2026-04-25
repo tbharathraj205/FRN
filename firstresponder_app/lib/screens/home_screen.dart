@@ -373,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(_isOnDuty ? 'SYSTEM ONLINE' : 'SYSTEM OFFLINE', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1)),
+                  Text(_isOnDuty ? 'ON DUTY' : 'OFF DUTY', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1)),
                 ],
               ),
               const SizedBox(height: 4),
