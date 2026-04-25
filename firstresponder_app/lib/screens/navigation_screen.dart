@@ -40,6 +40,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
   int _secondsLeft = 300;
   Position? _currentPosition;
   GoogleMapController? _mapController;
+  StreamSubscription<DocumentSnapshot>? _incidentSubscription;
 
   List<LatLng> _polylineCoordinates = [];
   String _routeDistance = '';
@@ -94,6 +95,50 @@ class _NavigationScreenState extends State<NavigationScreen> {
     _getAddress();
     _startLocationUpdates();
     _startCountdown();
+    _listenToIncidentStatus();
+  }
+
+  void _listenToIncidentStatus() {
+    _incidentSubscription = FirebaseFirestore.instance
+        .collection('incidents')
+        .doc(widget.incidentId)
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>;
+        final currentAssignedId = data['assigned_doctor_id'];
+        
+        // If the incident was reassigned to a closer doctor
+        if (currentAssignedId != null && currentAssignedId != widget.doctorId) {
+          _showReassignedDialog();
+        }
+      }
+    });
+  }
+
+  void _showReassignedDialog() {
+    if (!mounted) return;
+    _incidentSubscription?.cancel();
+    _locationTimer?.cancel();
+    _countdownTimer?.cancel();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Priority Reassigned'),
+        content: const Text('A closer responder was found and has been assigned to this emergency to ensure the fastest care. Thank you for volunteering!'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back to Home Screen
+            },
+            child: const Text('RETURN TO HOME'),
+          )
+        ],
+      ),
+    );
   }
 
   Future<void> _getAddress() async {
@@ -116,6 +161,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   @override
   void dispose() {
+    _incidentSubscription?.cancel();
     _locationTimer?.cancel();
     _countdownTimer?.cancel();
     _mapController?.dispose();

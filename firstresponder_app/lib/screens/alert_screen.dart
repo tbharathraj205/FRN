@@ -189,10 +189,11 @@ class _AlertScreenState extends State<AlertScreen> {
             incidentId: widget.incidentId, emergencyType: widget.emergencyType,
             lat: widget.lat, lng: widget.lng, ambulanceEta: widget.ambulanceEta, doctorId: widget.doctorId,
           )));
-        } else {
-          setState(() => _responding = false);
-          _showCloserDoctorDialog(result);
         }
+      } else if (response.statusCode == 409) {
+        final result = jsonDecode(response.body);
+        setState(() => _responding = false);
+        _showCloserDoctorDialog(result);
       } else {
         setState(() => _responding = false);
       }
